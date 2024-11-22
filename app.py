@@ -78,22 +78,28 @@ def auth():
 async def on_chat_start():
     cl.user_session.set("memory", ConversationBufferMemory(return_messages=True))
     setup_runnable()
-    start_msg = cl.Message(content="Good day teacher! I would like You to give me a task!")
+    res = cl.Message(content="")
+    message = cl.Message(content="")
     memory = cl.user_session.get("memory")  # type: ConversationBufferMemory
     runnable = cl.user_session.get("runnable")  # type: Runnable
 
 
+    modified_question = (
+        f"{message.content} "
+        "Good day teacher! I would like You to give me a task!"
+    )
+
     async for chunk in runnable.astream(
-        {"question": start_msg.content},
+        {"question": modified_question},
         config=RunnableConfig(callbacks=[cl.LangchainCallbackHandler()]),
     ):
-        await start_msg.stream_token(chunk)
+        await res.stream_token(chunk)
 
 
-    answer, metadata_value, vocabulary = extract_answer_and_metadata(start_msg.content)  # Implement this function based on your response format
+    answer, metadata_value, vocabulary = extract_answer_and_metadata(res.content)  # Implement this function based on your response format
 
 
-    await start_msg.send()
+    await res.send()
     memory.chat_memory.add_ai_message(answer)
 
 
