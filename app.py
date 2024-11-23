@@ -1,5 +1,6 @@
 
 
+import re
 
 from operator import itemgetter
 
@@ -39,6 +40,7 @@ def setup_runnable():
     system_prompt = "\n".join([
         "You are an advanced English language tutor and conversational AI. Your name is Anna.",
         "When given user input, your primary tasks are:",
+        "0. Secretly collect and build a vocabulary based on the words You suggested to me."
         "1. Provide detailed feedback on the grammar, syntax, and overall correctness of the input.",
         "2. Offer suggestions for improvement, if necessary, while maintaining a constructive and encouraging tone.",
         "3. Respond to the user naturally, continuing the conversation in a manner that is both engaging and aligned with the original input's intent.",
@@ -48,6 +50,7 @@ def setup_runnable():
         "Always provide feedback on the user's rhetoric, including whether their responses were clear, persuasive, or engaging, and suggest improvements if necessary.",
         "If the user asks questions, politely remind them that you are only allowed to ask questions and cannot answer any.",
         "You can't go off-topic and always remember: You are an English teacher and you cannot answer any question unrelated to learning or the topic."
+       
     ])
 
     prompt = ChatPromptTemplate.from_messages(
@@ -77,6 +80,8 @@ def auth():
 @cl.on_chat_start
 async def on_chat_start():
     cl.user_session.set("memory", ConversationBufferMemory(return_messages=True))
+    cl.user_session.set("counter", 0)
+
     setup_runnable()
     res = cl.Message(content="")
     message = cl.Message(content="")
@@ -86,7 +91,7 @@ async def on_chat_start():
 
     modified_question = (
         f"{message.content} "
-        "Good day teacher! I would like You to give me a task!"
+        "Good day teacher! I would like You to give me a task! Please start the descussion with a short introduction of yourself, then give me the task . Please give me a very easy task first."
     )
 
     async for chunk in runnable.astream(
@@ -96,11 +101,11 @@ async def on_chat_start():
         await res.stream_token(chunk)
 
 
-    answer, metadata_value, vocabulary = extract_answer_and_metadata(res.content)  # Implement this function based on your response format
+    #feedback, metadata_value, vocabulary = extract_data(res.content)  # Implement this function based on your response format
 
 
     await res.send()
-    memory.chat_memory.add_ai_message(answer)
+    memory.chat_memory.add_ai_message(res.content)
 
 
 @cl.on_chat_resume
@@ -126,16 +131,29 @@ async def on_message(message: cl.Message):
     res = cl.Message(content="")
 
 
+    counter = cl.user_session.get("counter")
+    if counter % 5 == 0 and counter > 1:
+        auxilary_text = "\n".join([
+            "The next task should be a recap about the vocabulary. Please create simple exercises regarding my collected vocabulary.",
+            "The tasks should be several different type of exercises like match the definitions, describe the word, create a sentence using the following words, etc.",
+            "Please do not give me the solutions before I submit my work."
+        ])
+    else:
+        auxilary_text = "If you found my answer good, please give me another task possibly by asking a question, based on my interests. Otherwise, ask me to do it again"
+
+
 
     # Modify the question to instruct the LLM to include metadata
+    
     modified_question = (
-        f"{message.content} "
-        "Please evaluate my solution to the task You gave me. Ignore this, if you have not gave me any task yet."
-        "Respond with your answer and suggestions to improve my solution (in terms of grammar or vocabulary) and include the metadata as either 0 (task failed) or 1 (task passed)."
-        "Please also include a list of words You suggest me to use in the future, words should be separated by '|' (bar) character."
-        "The desired format:"
-        "'Answer: <your_answer>, Metadata: <0 or 1> Vocabulary: <list_of_words_separated_with_bar>'."
+        f"{message.content} "+"\n"
+        #"Please evaluate my solution to the task You gave me. Ignore this, if you have not gave me any task yet."
+        "\nDo not evaluate my solution based on the instructions below, use only the text before this sentence."+"\n"
+        "If I passed the task, please put an '1' character to the end of Your reply, but not include it in any sentence. If I failed, it should be 0."+"\n"
+        f"{auxilary_text} "+"\n"
     )
+
+    print(modified_question)
 
     async for chunk in runnable.astream(
         {"question": modified_question},
@@ -144,9 +162,13 @@ async def on_message(message: cl.Message):
         await res.stream_token(chunk)
 
     # Extract the answer and metadata from the response
-    answer, metadata_value, vocabulary = extract_answer_and_metadata(res.content)  # Implement this function based on your response format
+    #feedback, metadata_value, vocabulary = extract_data(res.content)  # Implement this function based on your response format
 
-    print(vocabulary)
+    metadata_value = res.content[-1]
+    feedback = res.content[:-1]
+
+    if(metadata_value == 1):
+        cl.user_session.set("counter", counter+1)
 
     # Set the metadata in the response
     res.metadata = {"random_value": metadata_value}
@@ -155,13 +177,27 @@ async def on_message(message: cl.Message):
 
     # Update memory with user and AI messages
     memory.chat_memory.add_user_message(message.content)
-    memory.chat_memory.add_ai_message(answer)
+    memory.chat_memory.add_ai_message(feedback)
+
+'''def extract_data(template_string):
+    pattern = r"Feedback: (?P<feedback>.*?), Metadata: (?P<metadata>[01]), Vocabulary: (?P<vocabulary>.*?), Task: (?P<task>.*)"
+    match = re.match(pattern, template_string)
+    
+    if match:
+        return {
+            "feedback": match.group("feedback"),
+            "metadata": int(match.group("metadata")),
+            "vocabulary": match.group("vocabulary").split('|'),
+            "task": match.group("task")
+        }
+    else:
+        raise ValueError("String does not match the expected format. string: "+template_string)'''
 
 
-def extract_answer_and_metadata(response: str) -> tuple:
+'''def extract_botmsg(response: str) -> tuple:
     # Implement logic to extract the answer, metadata, and vocabulary from the response
     parts = response.split(", Metadata: ")
-    answer = parts[0].replace("Answer: ", "").strip()
+    feedback = parts[0].replace("Feedback: ", "").strip()
     
     # Extract metadata and vocabulary
     if len(parts) > 1:
@@ -172,4 +208,21 @@ def extract_answer_and_metadata(response: str) -> tuple:
         metadata_value = 0
         vocabulary_list = []
 
-    return answer, metadata_value, vocabulary_list
+    print("feedback: "+feedback)
+
+    return feedback, metadata_value, vocabulary_list'''
+
+
+'''
+modified_question = (
+        "My solution:"
+        f"{message.content} "
+        #"Please evaluate my solution to the task You gave me. Ignore this, if you have not gave me any task yet."
+        "Please do not evaluate my grammar based on the instructions below, use only the text after 'My solution:', and before this sentence."
+        "Respond with your feedback and suggestions to improve my solution (in terms of grammar or vocabulary) and include the metadata as either 0 (task failed) or 1 (task passed)."
+        "Please also include a list of words You suggest me to use in the future, words should be separated by '|' (bar) character."
+        "Put your whole text feedback into the <your_answer> tag. Do not write anything anywhere besides the <> tags. The desired format:"
+        "```Feedback: <your_answer>, Metadata: <0 or 1> Vocabulary: <list_of_words_separated_with_bar>```."
+        f"{auxilary_text} "
+    )
+    '''
